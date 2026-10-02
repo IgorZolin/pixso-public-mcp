@@ -73,7 +73,15 @@ export function pullDocument(fileKey, token, { waitMs = WAIT_MS } = {}) {
   });
 }
 
-export async function fetchDocument(fileKey) {
+// Accept a bare file_key or a full design URL (…/app/design/<key>?…).
+export function fileKeyOf(input) {
+  const s = String(input).trim();
+  const m = s.match(/\/design\/([^/?#]+)/);
+  return m ? m[1] : s;
+}
+
+export async function fetchDocument(input) {
+  const fileKey = fileKeyOf(input);
   const access = await getAccess(fileKey);
   if (!(access.public_access || access.tourist_access)) {
     throw new Error("file is not publicly accessible (no public_access / tourist_access)");

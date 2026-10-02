@@ -11,7 +11,7 @@
 //   pixso_raw_model(file_key)  -> base64 of the decompressed TLV model (for deeper tools)
 
 import { fetchDocument } from "./pixso-fetch.mjs";
-import { decodeDocument, summarize } from "./pixso-kiwi.mjs";
+import { decodeDocument, summarize, buildTree } from "./pixso-kiwi.mjs";
 
 const tools = {
   pixso_file_info: {
@@ -30,6 +30,14 @@ const tools = {
       const { doc } = await fetchDocument(file_key);
       const nodes = summarize(decodeDocument(doc));
       return { nodeCount: nodes.length, nodes };
+    },
+  },
+  pixso_tree: {
+    description: "Nested layer tree of a public Pixso file (page -> frame -> children, ordered), each node with type, name, bounds, fills/strokes, text, fontSize, auto-layout. Best for reconstructing UI.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string" } }, required: ["file_key"] },
+    async run({ file_key }) {
+      const { doc } = await fetchDocument(file_key);
+      return { tree: buildTree(decodeDocument(doc)) };
     },
   },
   pixso_raw_model: {
