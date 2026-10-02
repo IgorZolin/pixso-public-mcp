@@ -1,0 +1,6 @@
+node_modules/
+# Pixso's own schema file — fetched at install, never committed
+pixso.binary
+# captures & scratch
+*.har
+.env
