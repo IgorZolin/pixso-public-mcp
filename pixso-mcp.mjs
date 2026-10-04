@@ -11,7 +11,7 @@
 //   pixso_raw_model(file_key)  -> base64 of the decompressed TLV model (for deeper tools)
 
 import { fetchDocument } from "./pixso-fetch.mjs";
-import { decodeDocument, summarize, buildTree } from "./pixso-kiwi.mjs";
+import { decodeDocument, summarize, buildTree, selectTree, findNodes } from "./pixso-kiwi.mjs";
 
 const tools = {
   pixso_file_info: {
@@ -33,11 +33,21 @@ const tools = {
     },
   },
   pixso_tree: {
-    description: "Nested layer tree of a public Pixso file (page -> frame -> children, ordered), each node with type, name, bounds, fills/strokes, text, fontSize, auto-layout. Best for reconstructing UI.",
-    inputSchema: { type: "object", properties: { file_key: { type: "string" } }, required: ["file_key"] },
-    async run({ file_key }) {
+    description: "Nested layer tree of a public Pixso file (page -> frame -> children, ordered), each node with id, type, name, bounds, fills/strokes, text, fontSize, auto-layout. Best for reconstructing UI. Pass `node` (a frame name or id from pixso_find) to get ONLY that subtree — use it for big files instead of the whole document.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string" }, node: { type: "string", description: "optional frame name or id (s:l) to return just that subtree" } }, required: ["file_key"] },
+    async run({ file_key, node }) {
       const { doc } = await fetchDocument(file_key);
-      return { tree: buildTree(decodeDocument(doc)) };
+      const nodes = decodeDocument(doc);
+      return node ? { tree: selectTree(nodes, node) } : { tree: buildTree(nodes) };
+    },
+  },
+  pixso_find: {
+    description: "Find nodes by name in a public Pixso file — returns a lightweight list of {id, type, name}. Use it to locate the frame you want, then call pixso_tree with its id/name to pull only that subtree.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string" }, query: { type: "string", description: "substring of the node/frame name (case-insensitive)" } }, required: ["file_key", "query"] },
+    async run({ file_key, query }) {
+      const { doc } = await fetchDocument(file_key);
+      const matches = findNodes(decodeDocument(doc), query);
+      return { count: matches.length, matches };
     },
   },
   pixso_raw_model: {

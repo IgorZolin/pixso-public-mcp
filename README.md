@@ -1,5 +1,7 @@
 # pixso-public-mcp
 
+**English** · [Русский](README.ru.md)
+
 Unofficial, read-only [MCP](https://modelcontextprotocol.io) server that decodes
 **public** [Pixso](https://pixso.net) design files into structured data for AI coding
 agents (Claude Code, Cursor, OpenCode, …), so an agent can understand a design and
@@ -50,21 +52,26 @@ Node 22.15+ required (built-in zstd + WebSocket).
 claude mcp add pixso node /abs/path/to/pixso-mcp.mjs
 ```
 
-Tools (all take `file_key` — the id in `pixso.net/app/design/<file_key>`):
+Tools take `file_key` **or a full design URL** (`pixso.net/app/design/<file_key>`):
 
 | tool | returns |
 |------|---------|
 | `pixso_file_info` | name, public flags, permission |
+| `pixso_find(query)` | lightweight `{id, type, name}` list of nodes matching a name — to locate what to pull |
+| `pixso_tree(node?)` | nested layer tree; pass a node **name or id** to get only that subtree (any type, not just frames) |
 | `pixso_list_nodes` | flat list of decoded nodes |
-| `pixso_tree` | nested layer tree (best for rebuilding UI) |
+| `pixso_svg(node?)` | reconstructed preview SVG (approximate, from the data — not Pixso's vector export) |
 | `pixso_raw_model` | base64 of the decompressed document |
+
+For big files: `pixso_find` to locate a node → `pixso_tree(node)` to pull just that subtree.
 
 ## Use from the CLI
 
 ```bash
 # live (needs internet; anonymous)
-node pixso-fetch.mjs <file_key> doc.bin
-node pixso-kiwi.mjs doc.bin tree        # or: flat
+node pixso-fetch.mjs <file_key|url> doc.bin
+node pixso-kiwi.mjs doc.bin tree          # or: flat | find <q> | node <name|id>
+node pixso-svg.mjs  doc.bin "Checkout" > out.svg
 
 # from a DevTools .har of the open public file (no token handling at all)
 node pixso-har.mjs capture.har doc.bin
