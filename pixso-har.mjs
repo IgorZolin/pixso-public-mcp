@@ -4,6 +4,7 @@
 //   node pixso-har.mjs pixso_net.har [out.bin]
 import { readFileSync, writeFileSync } from "node:fs";
 import { zstdDecompressSync } from "node:zlib";
+import { pathToFileURL } from "node:url";
 
 const ZSTD = Buffer.from("28b52ffd", "hex");
 
@@ -25,7 +26,7 @@ export function docFromHar(harPath) {
   return payloads[0];
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const doc = docFromHar(process.argv[2]);
   const out = process.argv[3] || "doc.bin";
   writeFileSync(out, doc);

@@ -1,6 +1,6 @@
 {
   "name": "pixso-public-mcp",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Unofficial read-only MCP server that decodes PUBLIC Pixso design files for AI coding agents. No login, no seat, no dependencies.",
   "type": "module",
   "bin": {

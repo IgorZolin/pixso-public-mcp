@@ -3,6 +3,37 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.2] — 2026-10-05
+
+### Fixed
+- **Live fetch returned no document (`no document frame received`).** The coop
+  `FileInit` command was sent as raw text / a bare `FileInit{…}` binary frame. The
+  server rejects text frames (close `1003`) and fails to decode a bare payload
+  (`COOP ERROR / data decode failed`). It is a framed binary message —
+  `01 05 0e "FileInit"\0 0f <json>\0 12 00 00 00` (tag-prefixed, null-terminated
+  strings) — now built by `frameFileInit()`, byte-verified against browser captures.
+- `check_schema_version` now defaults to `false` (opt back in with
+  `PIXSO_CHECK_SCHEMA=1`) so a lagging `PIXSO_SCHEMA` constant can't block the load.
+
+### Added
+- `PIXSO_DEBUG=1` prints the websocket handshake to stderr (frames, sizes, zstd
+  offsets, server errors) for diagnosing fetch failures.
+
+## [0.2.1] — 2026-10-05
+
+### Fixed
+- **Windows: CLI did nothing.** The `node pixso-*.mjs …` entry points used a
+  POSIX-only main-module check (`import.meta.url === "file://" + argv[1]`) that never
+  matched on Windows, so the scripts exited silently. Now cross-platform via
+  `pathToFileURL`. (The MCP server itself was unaffected.)
+- Clearer `/access` errors: non-JSON / blocked / wrong-host responses now report the
+  HTTP status and a body snippet instead of a cryptic `Unexpected token` parse error.
+
+### Changed
+- Websocket fetch is event-driven: resolves shortly after the document arrives (handles
+  slow ~10s+ loads) with a hard cap, instead of a fixed 8s wait. Tunable via
+  `PIXSO_WAIT_MS` / `PIXSO_QUIET_MS`. `opencode.example.jsonc` sets `timeout: 30000`.
+
 ## [0.2.0] — 2026-10-04
 
 ### Added

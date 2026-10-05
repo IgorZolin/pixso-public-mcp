@@ -2,7 +2,7 @@
 // uses the real kiwi schema (pixso.binary) extracted from the app, so every
 // PixsoNode field decodes by its true type. No heuristics.
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { parseSchema } from "./kiwi-schema.mjs";
 
@@ -117,11 +117,15 @@ function effectsView(effects) {
   });
 }
 
+// guid -> "sessionID:localID"
+const gk = (g) => g ? `${g.sessionID || 0}:${g.localID || 0}` : null;
+
 // A compact, agent-friendly view of each node.
 export function summarize(nodes) {
   return nodes.map((n) => {
     const t = n.transform, s = n.size;
     const o = { name: n.name, type: n.type };
+    const id = gk(n.guid); if (id) o.id = id;
     if (t) o.x = Math.round(t.m02 * 100) / 100, o.y = Math.round(t.m12 * 100) / 100;
     if (s) o.w = Math.round(s.x * 100) / 100, o.h = Math.round(s.y * 100) / 100;
     const fills = paintsView(n.fillPaints); if (fills.length) o.fills = fills;
@@ -145,7 +149,6 @@ export function summarize(nodes) {
 
 // Nest nodes into a tree using parentIndex (guid of parent + fractional position).
 export function buildTree(rawNodes) {
-  const gk = (g) => g ? `${g.sessionID || 0}:${g.localID || 0}` : null;
   const sum = summarize(rawNodes);
   const byId = new Map();
   rawNodes.forEach((n, i) => { const id = gk(n.guid); sum[i].children = []; if (id) byId.set(id, { s: sum[i], pos: n.parentIndex?.position ?? "" }); delete sum[i].parent; });
@@ -159,8 +162,31 @@ export function buildTree(rawNodes) {
   return roots.sort((a, b) => (a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : 0)).map(finish);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Return the subtree(s) whose node matches `sel` (by id "s:l" or by name,
+// case-insensitive). Lets an agent pull just one frame instead of the whole doc.
+export function selectTree(rawNodes, sel) {
+  const want = String(sel).toLowerCase();
+  const out = [];
+  const walk = (ns) => { for (const n of ns) { if (n.id === sel || (n.name || "").toLowerCase() === want) out.push(n); else if (n.children) walk(n.children); } };
+  walk(buildTree(rawNodes));
+  return out;
+}
+
+// Flat discovery list: {id, type, name} for nodes whose name contains `query`.
+export function findNodes(rawNodes, query) {
+  const q = String(query).toLowerCase();
+  return summarize(rawNodes)
+    .filter((n) => (n.name || "").toLowerCase().includes(q))
+    .map((n) => ({ id: n.id, type: n.type, name: n.name }));
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const nodes = decodeDocument(readFileSync(process.argv[2] || "doc.bin"));
   const mode = process.argv[3] || "tree";
-  console.log(JSON.stringify(mode === "flat" ? summarize(nodes) : buildTree(nodes), null, 1));
+  let out;
+  if (mode === "flat") out = summarize(nodes);
+  else if (mode === "find") out = findNodes(nodes, process.argv[4] || "");
+  else if (mode === "node") out = selectTree(nodes, process.argv[4] || "");
+  else out = buildTree(nodes);
+  console.log(JSON.stringify(out, null, 1));
 }

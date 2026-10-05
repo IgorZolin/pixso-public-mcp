@@ -3,6 +3,7 @@
 // useful as a visual reference. VECTOR nodes (icon paths) are drawn as bounding boxes.
 import { decodeDocument, buildTree, selectTree } from "./pixso-kiwi.mjs";
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let gradSeq = 0;
@@ -71,7 +72,7 @@ export function documentSVG(rawNodes, node) {
   return toSVG(node ? selectTree(rawNodes, node) : buildTree(rawNodes));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const nodes = decodeDocument(readFileSync(process.argv[2] || "doc.bin"));
   process.stdout.write(documentSVG(nodes, process.argv[3]));
 }
