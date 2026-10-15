@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-10-15
+
+### Added
+- **Auto-scope by `page-id`.** When `file_key` is a full design URL containing
+  `?page-id=<s:l>` (e.g. `…/design/<key>?page-id=27:1`, url-encoded `27%3A1` too),
+  `pixso_tree` and `pixso_svg` now return just that page's subtree automatically.
+  An explicit `node` argument still overrides it. New `pageIdOf()` export.
+  (A page is a `CANVAS` node and `selectTree` already matched by id, so this just
+  wires the URL's page-id through as the default scope.)
+
 ## [0.2.2] — 2026-10-05
 
 ### Fixed

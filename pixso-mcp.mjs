@@ -10,8 +10,9 @@
 //   pixso_list_nodes(file_key) -> ordered node names, fonts, counts, engine
 //   pixso_raw_model(file_key)  -> base64 of the decompressed TLV model (for deeper tools)
 
-import { fetchDocument } from "./pixso-fetch.mjs";
+import { fetchDocument, pageIdOf } from "./pixso-fetch.mjs";
 import { decodeDocument, summarize, buildTree, selectTree, findNodes } from "./pixso-kiwi.mjs";
+import { documentSVG } from "./pixso-svg.mjs";
 
 const tools = {
   pixso_file_info: {
@@ -33,21 +34,30 @@ const tools = {
     },
   },
   pixso_tree: {
-    description: "Nested layer tree of a public Pixso file (page -> frame -> children, ordered), each node with id, type, name, bounds, fills/strokes, text, fontSize, auto-layout. Best for reconstructing UI. Pass `node` (a frame name or id from pixso_find) to get ONLY that subtree — use it for big files instead of the whole document.",
-    inputSchema: { type: "object", properties: { file_key: { type: "string" }, node: { type: "string", description: "optional frame name or id (s:l) to return just that subtree" } }, required: ["file_key"] },
+    description: "Nested layer tree of a public Pixso file (page -> frame -> children, ordered), each node with id, type, name, bounds, fills/strokes, text, fontSize, auto-layout. Best for reconstructing UI. Pass `node` (any node's name or id from pixso_find — a frame, group, rectangle, text, etc.) to get ONLY that subtree — use it for big files instead of the whole document. If file_key is a full URL with ?page-id=…, that page's subtree is returned automatically unless `node` overrides it.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string" }, node: { type: "string", description: "optional node name or id (s:l) to return just that subtree — any type, not only frames" } }, required: ["file_key"] },
     async run({ file_key, node }) {
       const { doc } = await fetchDocument(file_key);
       const nodes = decodeDocument(doc);
-      return node ? { tree: selectTree(nodes, node) } : { tree: buildTree(nodes) };
+      const sel = node || pageIdOf(file_key);
+      return sel ? { tree: selectTree(nodes, sel) } : { tree: buildTree(nodes) };
     },
   },
   pixso_find: {
-    description: "Find nodes by name in a public Pixso file — returns a lightweight list of {id, type, name}. Use it to locate the frame you want, then call pixso_tree with its id/name to pull only that subtree.",
+    description: "Find nodes by name in a public Pixso file (any type — frame, rectangle, text, group…) — returns a lightweight list of {id, type, name}. Use it to locate the node you want, then call pixso_tree with its id/name to pull only that subtree.",
     inputSchema: { type: "object", properties: { file_key: { type: "string" }, query: { type: "string", description: "substring of the node/frame name (case-insensitive)" } }, required: ["file_key", "query"] },
     async run({ file_key, query }) {
       const { doc } = await fetchDocument(file_key);
       const matches = findNodes(decodeDocument(doc), query);
       return { count: matches.length, matches };
+    },
+  },
+  pixso_svg: {
+    description: "Reconstructed preview SVG of a public Pixso file (or one node via `node`). Approximate render from the decoded data (rects, ellipses, text, fills incl. gradients, strokes, radius, drop-shadows) — a visual reference, not Pixso's official vector export. VECTOR/icon paths are drawn as boxes.",
+    inputSchema: { type: "object", properties: { file_key: { type: "string" }, node: { type: "string", description: "optional node name or id to render just that subtree" } }, required: ["file_key"] },
+    async run({ file_key, node }) {
+      const { doc } = await fetchDocument(file_key);
+      return { svg: documentSVG(decodeDocument(doc), node || pageIdOf(file_key)) };
     },
   },
   pixso_raw_model: {

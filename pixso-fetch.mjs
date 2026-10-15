@@ -116,6 +116,14 @@ export function fileKeyOf(input) {
   return m ? m[1] : s;
 }
 
+// Pull page-id out of a design URL (…?page-id=27:1 or url-encoded 27%3A1).
+// Returns a node id string (sessionID:localID) or null. A page is a CANVAS node,
+// and selectTree matches by id, so this id scopes a fetch to one page.
+export function pageIdOf(input) {
+  const m = String(input).match(/[?&]page-id=([^&#]+)/i);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export async function fetchDocument(input) {
   const fileKey = fileKeyOf(input);
   const access = await getAccess(fileKey);
