@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { zstdDecompressSync } from "node:zlib";
 import { pathToFileURL } from "node:url";
+import { packParts } from "./pixso-fetch.mjs";
 
 const ZSTD = Buffer.from("28b52ffd", "hex");
 
@@ -22,8 +23,7 @@ export function docFromHar(harPath) {
     }
   }
   if (!payloads.length) throw new Error("no decodable coop document frame in HAR");
-  payloads.sort((a, b) => b.length - a.length); // largest = document
-  return payloads[0];
+  return packParts(payloads); // arrival order; decodeDocument merges them
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

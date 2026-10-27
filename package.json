@@ -1,6 +1,6 @@
 {
   "name": "pixso-public-mcp",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Unofficial read-only MCP server that decodes PUBLIC Pixso design files for AI coding agents. No login, no seat, no dependencies.",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "schema": "node scripts/get-schema.mjs",
-    "postinstall": "node scripts/get-schema.mjs || true"
+    "postinstall": "node scripts/get-schema.mjs || true",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=22.15"
@@ -17,6 +18,7 @@
     "pixso-mcp.mjs",
     "pixso-kiwi.mjs",
     "pixso-svg.mjs",
+    "pixso-html.mjs",
     "kiwi-schema.mjs",
     "pixso-fetch.mjs",
     "pixso-har.mjs",
@@ -26,6 +28,12 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
-  "keywords": ["mcp", "pixso", "design-to-code", "kiwi", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "pixso",
+    "design-to-code",
+    "kiwi",
+    "model-context-protocol"
+  ],
   "license": "MIT"
 }

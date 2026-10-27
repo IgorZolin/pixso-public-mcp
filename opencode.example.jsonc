@@ -9,7 +9,8 @@
 // with your Pixso domain. (Anonymous/public access to the file is still required.)
 //
 // "timeout" is bumped because the first call opens a websocket and waits for the
-// document — OpenCode's default MCP timeout is 5000 ms, which is too short.
+// whole document (big files: tens of seconds) — OpenCode's default MCP timeout is
+// 5000 ms, which is too short. Later calls on the same file hit a 5-minute cache.
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -17,7 +18,7 @@
       "type": "local",
       "command": ["node", "/abs/path/to/pixso-public-mcp/pixso-mcp.mjs"],
       "enabled": true,
-      "timeout": 30000,
+      "timeout": 120000,
       "environment": {
         "PIXSO_API": "https://pixso-url",
         "PIXSO_WS": "wss://pixso-url",

@@ -20,18 +20,37 @@ implement it as HTML/React/etc.
 
 ## What you get
 
-For each node: `type, name, x, y, w, h, fills, strokes, strokeWeight, cornerRadius,
-opacity, effects (shadows/blur), background, text, fontSize, fontName, auto-layout,`
-and a nested parent→child **tree**.
+CSS-ready properties per node:
+
+- **box & paint** — `x, y, w, h, rotation`, `fills` (hex, gradients with `angle`/handles,
+  images with hash), `strokes` (`strokeWeight`, `strokeAlign`, `dash`, per-side
+  `borderWeights`), `cornerRadius` (number or `[tl, tr, br, bl]`), `effects`
+  (shadows/blur), `opacity`, `blendMode`, `clipsContent`;
+- **text** — `text`, `fontFamily`, `fontWeight`, `italic`, `fontSize`, `lineHeight`,
+  `letterSpacing`, `textAlign`, `textResize` (hug / fixed-width / fixed),
+  `textDecoration`, `textCase`, and `runs` for mixed styling inside one text;
+- **layout** — `autoLayout {mode, gap, padding, justify, align, wrap, width/height:
+  hug|fixed}` on containers and `layoutGrow` / `alignSelf` / `position` on children
+  (flexbox terms), `constraints`;
+- **vectors & icons** — every vector carries `svg`: its exact outline from the
+  document's geometry, ready to inline. Small vector-only groups/instances (icons) are
+  collapsed into one `svg`;
+- **components** — instances are expanded from their master (overrides, text/boolean/
+  swap properties, per-instance layout applied), tagged with `component`;
+- **design system** — named styles (`fillStyle`, `textStyle`, `strokeStyle`, `effectStyle`)
+  and variables (`fills[].var`, `vars: {gap: "space/12"}`) with values per mode;
+- **prototype** — `interactions` (click/hover → navigate/overlay/back/url…), `scroll`.
 
 ```jsonc
 // pixso_tree (excerpt)
-{ "type": "FRAME", "name": "WRAP", "w": 400, "h": 300, "fills": ["#ffffff"],
-  "autoLayout": { "mode": "VERTICAL", "gap": 8, "padding": [16,16,16,16] },
+{ "type": "FRAME", "name": "card", "w": 360, "h": 120, "fills": ["#ffffff"], "cornerRadius": 12,
+  "clipsContent": true,
+  "autoLayout": { "mode": "horizontal", "gap": 12, "padding": [16,16,16,16], "align": "center", "width": "fixed", "height": "hug" },
   "children": [
-    { "type": "RECTANGLE", "name": "BOX", "x": 16, "y": 16, "w": 200, "h": 100,
-      "fills": ["#112233"], "strokes": ["#445566"], "strokeWeight": 4, "cornerRadius": 12,
-      "effects": [{ "type": "DROP_SHADOW", "color": "#00000040", "x": 4, "y": 4, "blur": 10, "spread": 2 }] }
+    { "type": "INSTANCE", "name": "Icon 3", "component": "icon/download", "w": 24, "h": 24,
+      "iconLayers": 2, "svg": "<svg viewBox=\"0 0 24 24\" …><path d=\"M4 2L20 2L12 16Z\" fill=\"#112233\"/>…</svg>" },
+    { "type": "TEXT", "text": "Требуется согласование", "fontFamily": "Inter", "fontWeight": 600,
+      "fontSize": 16, "lineHeight": 24, "fills": ["#1d2129"], "layoutGrow": 1 }
   ] }
 ```
 
@@ -56,22 +75,54 @@ Tools take `file_key` **or a full design URL** (`pixso.net/app/design/<file_key>
 
 | tool | returns |
 |------|---------|
-| `pixso_file_info` | name, public flags, permission |
-| `pixso_find(query)` | lightweight `{id, type, name}` list of nodes matching a name — to locate what to pull |
-| `pixso_tree(node?)` | nested layer tree; pass a node **name or id** to get only that subtree (any type, not just frames) |
-| `pixso_list_nodes` | flat list of decoded nodes |
-| `pixso_svg(node?)` | reconstructed preview SVG (approximate, from the data — not Pixso's vector export) |
-| `pixso_raw_model` | base64 of the decompressed document |
+| `pixso_file_info` | name, public flags, permission (fast — no document download) |
+| `pixso_pages(limit?)` | table of contents: pages and their top-level frames `{id, name, w, h, section}` |
+| `pixso_find(query, limit?)` | nodes whose **name or text** contains `query`: `{id, type, name, text, frame}` |
+| `pixso_text(node?)` | all visible text of a page/frame in layer order: `{id, text, path}` — cheapest way to read a screen |
+| `pixso_tree(node?, depth?, include_hidden?, icons?, repeats?)` | nested layer tree, instances expanded, icons as `svg`, long lists collapsed; `depth` caps nesting (deeper → `childCount`) |
+| `pixso_html(node?, fonts?, repeats?)` | **HTML + CSS starting point**: flexbox from auto layout, absolute positioning otherwise, full styling, inline SVG icons, CSS variables for named colors, `data-pixso-id` / `data-component` / `data-action` |
+| `pixso_tokens(node?)` | design tokens with usage counts: colors (roles, style/variable names), text styles, fonts, radii, shadows, gaps, paddings, gradients, variables per mode |
+| `pixso_components(node?)` | components used (incl. nested), grouped by set: count, instance ids, variant values, property values; unresolved masters |
+| `pixso_flows(node?, limit?)` | prototype map: `{from, on, action, to, url, transition}` per interaction + flow start points |
+| `pixso_svg(node?)` | preview SVG: exact vector and text-glyph outlines, reconstructed fills/strokes/shadows/clipping; also how to export an icon. `stats` says what is exact |
+| `pixso_list_nodes(type?, offset?, limit?)` | flat, paged list of raw layers (instances not expanded) |
+| `pixso_raw_model(offset?, length?)` | base64 of the decompressed document, in slices |
 
-For big files: `pixso_find` to locate a node → `pixso_tree(node)` to pull just that subtree.
+`node` is an id (from `pixso_find`, or the URL's `item-id`; instance children look like
+`I3119:319053;12:34`) or an exact layer name. Without `node`, a URL's `?item-id=` (the selected layer) or
+`?page-id=` scopes `pixso_tree` / `pixso_text` / `pixso_svg`.
+
+Typical flow for implementing a screen: `pixso_pages` → `pixso_find` → `pixso_tokens(node)` (theme) →
+`pixso_components(node)` (reuse your UI kit) → `pixso_html(node)` / `pixso_tree(node, depth)` →
+`pixso_flows` for navigation, `pixso_svg(node)` to look or to export an icon. The server sends this
+workflow to the client as MCP `instructions`.
+
+Runs of 5+ look-alike siblings (list rows, table rows, cards) are collapsed to the first 3 plus a
+`REPEAT` node `{repeated, like, ids, items}` carrying the other items' texts — a 300-row table costs
+3 rows + data.
+The downloaded document is cached for 5 minutes, so follow-up calls are instant.
+
+### Settings (environment)
+
+| variable | default | |
+|----------|---------|-|
+| `PIXSO_WAIT_MS` | `60000` | max wait for the document over the websocket |
+| `PIXSO_CACHE_MS` | `300000` | how long a downloaded file is reused |
+| `PIXSO_MAX_RESPONSE` | `400000` | max tool response (chars); larger → error asking to narrow with `node`/`depth` |
+| `PIXSO_MAX_NODES` | `20000` | max nodes `pixso_tree` builds before asking to narrow |
+| `PIXSO_ICON_MAX` | `96` | max icon size (px) collapsed into one `svg` in `pixso_tree` |
+| `PIXSO_DEBUG` | — | `1` logs websocket frames to stderr |
+| `PIXSO_API` / `PIXSO_WS` / `PIXSO_SCHEMA_URL` | pixso.net | self-hosted Pixso |
 
 ## Use from the CLI
 
 ```bash
 # live (needs internet; anonymous)
 node pixso-fetch.mjs <file_key|url> doc.bin
-node pixso-kiwi.mjs doc.bin tree          # or: flat | find <q> | node <name|id>
+node pixso-kiwi.mjs doc.bin tree          # or: flat | find <q> | node <name|id> | text [node]
+                                          #     pages | tokens [node] | components [node] | flows [node]
 node pixso-svg.mjs  doc.bin "Checkout" > out.svg
+node pixso-html.mjs doc.bin "Checkout" > out.html
 
 # from a DevTools .har of the open public file (no token handling at all)
 node pixso-har.mjs capture.har doc.bin
@@ -91,8 +142,28 @@ node pixso-kiwi.mjs doc.bin tree
 - Public files only. Login-only / corporate files are not accessible this way (use
   Pixso's enterprise Open API with admin credentials for those).
 - Pinned to schema `v10.01`. If Pixso bumps it, re-run `npm run schema`.
-- Not surfaced yet: gradient angle, image-fill asset URLs, layout constraints,
-  per-character text styling.
+- Instances resolve only when the master is in the file (local components, and
+  library components Pixso copies into the file). Otherwise the instance's own text
+  (overrides, property values) is still returned, and `stats.missing` / `warning`
+  name the missing masters.
+- Images: only a hash and size — image bytes are not in the document stream, so
+  `pixso_svg` draws grey placeholders.
+- `rotation` is in CSS degrees around the node's `x, y` (its rotated top-left corner).
+- Text overridden in an instance without a stored glyph layout is drawn with `<text>`
+  (no wrapping) in `pixso_svg`; the data in `pixso_tree` is unaffected.
+- Masks and boolean-operation children are not composited in `pixso_svg` (the boolean's
+  result outline is drawn).
+- `pixso_html` is a scaffold: flexbox mirrors auto layout, but non-auto-layout frames are
+  absolutely positioned; fonts are linked from Google Fonts by family name.
+- Named styles / variables from a library resolve only if Pixso copied their definitions
+  into the file.
+
+## Troubleshooting
+
+- **First call times out in the client** — big files take a while to stream; raise the
+  client's MCP timeout (OpenCode: `"timeout": 120000`) and/or `PIXSO_WAIT_MS`.
+- **OpenCode: tools gone after reconnecting the server** (`Unknown tool`, empty search)
+  — the client's tool catalog didn't refresh; restart the OpenCode session.
 
 ## Legal
 

@@ -4,3 +4,9 @@ pixso.binary
 # captures & scratch
 *.har
 .env
+
+# local test output
+/doc.bin
+
+# IntelliJ IDEA
+.idea/
