@@ -3,7 +3,7 @@
 // The coop websocket frames live in entry._webSocketMessages[].data (base64).
 //   node pixso-har.mjs pixso_net.har [out.bin]
 import { readFileSync, writeFileSync } from "node:fs";
-import { zstdDecompressSync } from "node:zlib";
+import * as zlib from "node:zlib";
 import { pathToFileURL } from "node:url";
 import { packParts } from "./pixso-fetch.mjs";
 
@@ -19,7 +19,7 @@ export function docFromHar(harPath) {
       const buf = Buffer.from(m.data, "base64");
       const i = buf.indexOf(ZSTD);
       if (i < 0) continue;
-      try { payloads.push(zstdDecompressSync(buf.subarray(i))); } catch {}
+      try { payloads.push(zlib.zstdDecompressSync(buf.subarray(i))); } catch {}
     }
   }
   if (!payloads.length) throw new Error("no decodable coop document frame in HAR");

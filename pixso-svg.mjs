@@ -91,7 +91,9 @@ function shape(n, c) {
   if (n.type === "TEXT") { if (n.text) c.st.texts++; return textSVG(n, c); }
   if (n._paths?.length && (VECTORISH.has(n.type) || n.svg)) { // exact outlines
     c.st.paths++;
-    return `<g${filter}>` + n._paths.map((p) => `<path d="${p.d}"${paint(p.paint, c)}${p.rule ? ` fill-rule="${p.rule}"` : ""}/>`).join("") + "</g>";
+    return `<g${filter}>` + n._paths.map((p) => p.stroke
+      ? `<path d="${p.d}" fill="none"${paint(p.paint, c, "stroke")} stroke-width="${p.stroke.width}"${p.stroke.cap === "round" || p.stroke.cap === "square" ? ` stroke-linecap="${p.stroke.cap}"` : ""}${p.stroke.join === "round" || p.stroke.join === "bevel" ? ` stroke-linejoin="${p.stroke.join}"` : ""}/>`
+      : `<path d="${p.d}"${paint(p.paint, c)}${p.rule ? ` fill-rule="${p.rule}"` : ""}/>`).join("") + "</g>";
   }
   if (VECTORISH.has(n.type)) c.st.vectorsAsBoxes++;
   if (!w && !h) return "";

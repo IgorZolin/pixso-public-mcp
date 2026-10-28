@@ -3,6 +3,39 @@
 All notable changes to this project are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.6.0] — 2026-10-28
+
+Fixes from a review on a corporate (self-hosted) Pixso.
+
+### Fixed
+- **Recent edits missing** (`node not found` for layers from the latest editing sessions):
+  after the saved document (`FIC_DOCUMENT`) the fetcher now joins the coop session like the
+  web viewer (`JOIN_START`, kiwi-encoded, byte-verified against browser captures) and merges
+  the edits the server sends (`NODE_CHANGES`). Cursor/presence traffic no longer keeps the
+  download open; it finishes on the join reply. `PIXSO_JOIN=0` disables it.
+- **Library icons rendered empty**: vectors with no stored outline geometry are rebuilt from
+  their vector network (`vectorData.vectorNetworkBlob`: regions → fills with winding rule,
+  segments → SVG strokes with width/caps/joins, scaled from `normalizedSize`).
+- **Self-hosted links**: the API / WS host is taken from the link (`https://pixso.company.ru/…`)
+  unless `PIXSO_API`/`PIXSO_WS` are set; the document load and `pixso_file_info` used to ignore it.
+  Links are parsed more robustly (`/design|file|proto/…`, `?file_key=`, scheme-less links,
+  `item-id` / `node-id`).
+- `pixso_tree` on deep frames broke clients that limit JSON depth (e.g. 32): nesting is cut at
+  `PIXSO_DEFAULT_DEPTH` (10) unless `depth` is given, with a note how to drill down; new
+  `flat: true` returns a flat list with `parent` / `depth`.
+- `pixso_list_nodes` over a whole file exceeded the response limit: rows are lighter (no `svg` /
+  `runs`) and the page shrinks automatically to fit, with a correct `next_offset`.
+- Old Node (e.g. 20) failed with a bare `SyntaxError`: now a clear "needs Node.js >= 22.15" error.
+
+### Added
+- `fresh: true` on every document tool — re-download, ignoring the 5-minute cache.
+- "Not found" explains when a layer is newer than the loaded document (its editing session vs
+  the newest session in the document).
+- `pixso_file_info` reports `modified` and, for an already loaded file, the cached copy's age,
+  node count, newest session, payloads and live changes received.
+- Kiwi encoder (`encodeMsg`). End-to-end tests against a fake Pixso server (HTTP + WebSocket):
+  coop join + live edits, and the MCP server over stdio.
+
 ## [0.5.0] — 2026-10-27
 
 From design data to code: overview, theme, components, HTML and navigation.

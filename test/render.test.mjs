@@ -77,3 +77,40 @@ test("gradient handles, rotation, per-corner radius, auto layout in flex terms",
   assert.equal(f.layoutGrow, 1);
   assert.match(toSVG([f]), /matrix\(0 1 -1 0 10 0\)/);
 });
+
+import { vectorNetwork } from "../pixso-kiwi.mjs";
+import { documentSVG } from "../pixso-svg.mjs";
+
+// encode a vector network blob: verts [[x,y]], segs [[a,[tx,ty],b,[tx,ty]]], regions [{nonzero, loops:[[i…]]}]
+function netBlob(verts, segs, regions = []) {
+  const n = 12 + verts.length * 12 + segs.length * 28 + regions.reduce((s, r) => s + 8 + r.loops.reduce((t, l) => t + 4 + l.length * 4, 0), 0);
+  const b = Buffer.alloc(n); let p = 0;
+  const u = (v) => { b.writeUInt32LE(v, p); p += 4; }, f = (v) => { b.writeFloatLE(v, p); p += 4; };
+  u(verts.length); u(segs.length); u(regions.length);
+  for (const [x, y] of verts) { u(0); f(x); f(y); }
+  for (const [a, ta, z, tz] of segs) { u(0); u(a); f(ta[0]); f(ta[1]); u(z); f(tz[0]); f(tz[1]); }
+  for (const r of regions) { u(r.nonzero ? 1 : 0); u(r.loops.length); for (const l of r.loops) { u(l.length); l.forEach(u); } }
+  return b;
+}
+
+test("vector network -> filled regions (curves, segment orientation) and strokes when no outline is stored", () => {
+  // drop shape 0..12 normalized, node 24x24 -> scale 2; one segment stored backwards
+  const blob = netBlob([[6, 0], [12, 8], [0, 8]],
+    [[0, [0, 0], 1, [0, 0]], [1, [0, 4], 2, [0, 4]], [0, [0, 0], 2, [0, 0]]], [{ nonzero: true, loops: [[0, 1, 2]] }]);
+  const net = vectorNetwork(blob);
+  assert.equal(net.regions.length, 1);
+  const icon = [
+    { guid: G(1, 1), type: "CANVAS", name: "Page" },
+    { guid: G(2, 1), type: "VECTOR", name: "drop", parentIndex: at(1, 1, "a"), transform: T(0, 0), size: { x: 24, y: 24 },
+      vectorData: { normalizedSize: { x: 12, y: 12 }, network: net }, fillPaints: [{ type: "SOLID", color: { r: 79, g: 82, b: 93, a: 255 } }] },
+    { guid: G(2, 2), type: "VECTOR", name: "tick", parentIndex: at(1, 1, "b"), transform: T(30, 0), size: { x: 10, y: 6 }, strokeWeight: 2, strokeCap: "ROUND", strokeJoin: "ROUND",
+      vectorData: { normalizedSize: { x: 10, y: 6 }, network: vectorNetwork(netBlob([[0, 3], [4, 6], [10, 0]], [[0, [0, 0], 1, [0, 0]], [1, [0, 0], 2, [0, 0]]])) },
+      strokePaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 255 } }] },
+  ];
+  const [drop] = selectTree(icon, "2:1");
+  assert.match(drop.svg, /<path d="M12 0L24 16C24 24 0 24 0 16L12 0Z" fill="#4f525d" fill-rule|<path d="M12 0L24 16C24 24 0 24 0 16L12 0Z" fill="#4f525d"\/>/);
+  const [tick] = selectTree(icon, "2:2");
+  assert.match(tick.svg, /<path d="M0 3L4 6L10 0" fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"\/>/);
+  const { stats } = documentSVG(icon, "1:1");
+  assert.deepEqual([stats.paths, stats.vectorsAsBoxes], [2, 0]);
+});

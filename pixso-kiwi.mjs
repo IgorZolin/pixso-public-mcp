@@ -73,6 +73,47 @@ function decodeMessage(r, defs, def) {
   return o;
 }
 
+// ---------- encoder (mirror of the decoder) ----------
+// Used to send coop messages (JOIN_START) the way the web client does.
+function writer() {
+  const out = [];
+  const u8 = (v) => out.push(v & 0xff);
+  const varuint = (v) => { v >>>= 0; do { let b = v & 0x7f; v >>>= 7; if (v) b |= 0x80; out.push(b); } while (v); };
+  const varint = (v) => varuint((v << 1) ^ (v >> 31));
+  const varfloat = (f) => {
+    const dv = new DataView(new ArrayBuffer(4)); dv.setFloat32(0, f); const bits = dv.getUint32(0);
+    const rotl1 = ((bits << 1) | (bits >>> 31)) >>> 0;
+    if ((rotl1 >>> 24) === 0) { out.push(0); return; }       // exponent 0 -> zero
+    out.push(rotl1 >>> 24, rotl1 & 0xff, (rotl1 >>> 8) & 0xff, (rotl1 >>> 16) & 0xff);
+  };
+  const cstr = (s) => { out.push(...Buffer.from(String(s), "utf8"), 0); };
+  return { u8, varuint, varint, varfloat, cstr, bytes: () => Buffer.from(out) };
+}
+function encodeValue(w, defs, type, isArray, v) {
+  if (isArray) { w.varuint(v.length); for (const x of v) encodeValue(w, defs, type, false, x); return; }
+  if (type < 0) {
+    switch (type) {
+      case -1: return w.u8(v ? 1 : 0);
+      case -2: return w.u8(v);
+      case -3: return w.varint(v | 0);
+      case -4: return w.varuint(v);
+      case -5: return w.varfloat(v);
+      case -6: return w.cstr(v);
+    }
+  }
+  const d = refDef(defs, type);
+  if (d.kind === 0) { const f = d.fields.find((x) => x.name === v || x.value === v); return w.varuint(f ? f.value : v); }
+  if (d.kind === 1) { for (const f of d.fields) encodeValue(w, defs, f.type, f.isArray, v[f.name]); return; }
+  for (const f of d.fields) if (v[f.name] !== undefined) { w.varuint(f.value); encodeValue(w, defs, f.type, f.isArray, v[f.name]); }
+  w.varuint(0);
+}
+// PixsoMsg object -> kiwi bytes
+export function encodeMsg(msg) {
+  const { defs, byName } = schema(), w = writer();
+  encodeValue(w, defs, byName.get("PixsoMsg") - 1, false, msg);
+  return w.bytes();
+}
+
 // One decompressed coop payload -> full PixsoMsg {type, pixsoNodes, blobs, …}.
 export function decodeMsg(buf) {
   const { defs, byName } = schema();
@@ -102,6 +143,66 @@ export function blobPath(bytes, digits = 2) {
   return d ? { d, box: [x0, y0, x1, y1] } : null;
 }
 
+// Vector network (editable form of a VECTOR, kept when no outline geometry is stored):
+// u32 vertexCount, segmentCount, regionCount;
+// vertex {u32 style, f32 x, f32 y}; segment {u32 style, u32 start, f32 tx, f32 ty, u32 end, f32 tx, f32 ty}
+// (tangents relative to their vertex); region {u32 style<<1 | nonzero, u32 loopCount,
+// loops: u32 n + n segment indices}. Coordinates are in vectorData.normalizedSize space.
+export function vectorNetwork(bytes) {
+  const b = Buffer.from(bytes);
+  if (b.length < 12) return null;
+  const nv = b.readUInt32LE(0), ns = b.readUInt32LE(4), nr = b.readUInt32LE(8);
+  let p = 12;
+  if (p + nv * 12 + ns * 28 > b.length) return null;
+  const verts = [], segs = [], regions = [];
+  for (let i = 0; i < nv; i++, p += 12) verts.push([b.readFloatLE(p + 4), b.readFloatLE(p + 8)]);
+  for (let i = 0; i < ns; i++, p += 28) {
+    const sg = { a: b.readUInt32LE(p + 4), ta: [b.readFloatLE(p + 8), b.readFloatLE(p + 12)], b: b.readUInt32LE(p + 16), tb: [b.readFloatLE(p + 20), b.readFloatLE(p + 24)] };
+    if (sg.a >= nv || sg.b >= nv) return null;
+    segs.push(sg);
+  }
+  try {
+    for (let i = 0; i < nr; i++) {
+      const head = b.readUInt32LE(p), nl = b.readUInt32LE(p + 4); p += 8;
+      const loops = [];
+      for (let j = 0; j < nl; j++) {
+        const n = b.readUInt32LE(p); p += 4;
+        const idx = []; for (let k = 0; k < n; k++, p += 4) idx.push(b.readUInt32LE(p));
+        if (idx.some((x) => x >= ns)) throw 0;
+        loops.push(idx);
+      }
+      regions.push({ rule: head & 1 ? "nonzero" : "evenodd", loops });
+    }
+  } catch { regions.length = 0; } // unknown region layout: keep the strokes
+  return { verts, segs, regions };
+}
+
+// network -> SVG path strings: closed region loops (fill) and chained segments (stroke)
+function networkPaths(net, sx, sy) {
+  const P = (v) => fmt(v[0] * sx, 100) + " " + fmt(v[1] * sy, 100);
+  const seg = (sg, fwd) => {
+    const [from, to, tf, tt] = fwd ? [sg.a, sg.b, sg.ta, sg.tb] : [sg.b, sg.a, sg.tb, sg.ta];
+    const A = net.verts[from], B = net.verts[to];
+    if (!tf[0] && !tf[1] && !tt[0] && !tt[1]) return "L" + P(B);
+    return "C" + P([A[0] + tf[0], A[1] + tf[1]]) + " " + P([B[0] + tt[0], B[1] + tt[1]]) + " " + P(B);
+  };
+  const fills = net.regions.map((r) => ({ rule: r.rule, d: r.loops.map((loop) => {
+    const s0 = net.segs[loop[0]], s1 = net.segs[loop[1] ?? loop[0]];
+    let cur = loop.length > 1 && (s0.a === s1.a || s0.a === s1.b) ? s0.b : s0.a, d = "M" + P(net.verts[cur]);
+    for (const i of loop) { const sg = net.segs[i], fwd = sg.a === cur; d += seg(sg, fwd); cur = fwd ? sg.b : sg.a; }
+    return d + "Z";
+  }).join("") }));
+  let stroke = "", cur = -1, start = -1;
+  for (const sg of net.segs) {
+    const fwd = sg.a === cur || sg.b !== cur;
+    if (sg.a !== cur && sg.b !== cur) { if (cur === start && stroke) stroke += "Z"; start = sg.a; stroke += "M" + P(net.verts[sg.a]); }
+    stroke += seg(sg, fwd); cur = fwd ? sg.b : sg.a;
+  }
+  if (cur === start && stroke && net.segs.length > 1) stroke += "Z";
+  return { fills, stroke };
+}
+const pathBox = (d) => { const n = d.match(/-?\d+(\.\d+)?(e-?\d+)?/g)?.map(Number) || [0, 0]; const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+
 const GEOMETRY = ["fillGeometry", "strokeGeometry", "strokePaddingPath"];
 function resolveBlobs(n, blobs, cache) {
   const get = (i, digits) => {
@@ -110,6 +211,12 @@ function resolveBlobs(n, blobs, cache) {
     return cache.get(key);
   };
   for (const f of GEOMETRY) if (n[f]) n[f] = n[f].map((g) => ({ ...g, path: get(g.blobIndex, 2) }));
+  const vb = n.vectorData?.vectorNetworkBlob;
+  if (vb != null && blobs[vb]?.bytes) {
+    const key = "net/" + vb;
+    if (!cache.has(key)) cache.set(key, vectorNetwork(blobs[vb].bytes));
+    n.vectorData = { ...n.vectorData, network: cache.get(key) };
+  }
   if (n.textData?.glyphs) n.textData.glyphs = n.textData.glyphs.map((g) => ({ ...g, path: get(g.blobIndex, 3) })); // em units
   for (const x of n.derivedSymbolData || []) resolveBlobs(x, blobs, cache);
   for (const x of n.symbolData?.symbolOverrides || []) resolveBlobs(x, blobs, cache);
@@ -333,17 +440,33 @@ function pathsOf(n, fills, strokes) {
   if (fill) for (const g of n.fillGeometry || []) if (g.path) out.push({ d: g.path.d, box: g.path.box, paint: fill, rule: RULE[g.windingRule] });
   const sg = n.strokeGeometry?.length ? n.strokeGeometry : n.strokePaddingPath;
   if (stroke) for (const g of sg || []) if (g.path) out.push({ d: g.path.d, box: g.path.box, paint: stroke, rule: RULE[g.windingRule] });
+  // no stored outline: build it from the vector network (fills by region, strokes as SVG strokes)
+  const net = n.vectorData?.network;
+  if (!out.length && net?.segs.length) {
+    const ns = n.vectorData.normalizedSize, sx = ns?.x ? (n.size?.x ?? ns.x) / ns.x : 1, sy = ns?.y ? (n.size?.y ?? ns.y) / ns.y : 1;
+    const { fills: regions, stroke: sd } = networkPaths(net, sx, sy);
+    if (fill) for (const r of regions) out.push({ d: r.d, box: pathBox(r.d), paint: fill, rule: r.rule === "evenodd" ? "evenodd" : undefined });
+    if (fill && !regions.length && sd.includes("Z")) out.push({ d: sd, box: pathBox(sd), paint: fill }); // closed outline, no regions
+    if (stroke && sd) {
+      const w = n.strokeWeight || 1, b = pathBox(sd);
+      out.push({ d: sd, box: [b[0] - w / 2, b[1] - w / 2, b[2] + w / 2, b[3] + w / 2], paint: stroke, stroke: { width: w, cap: lower(n.strokeCap), join: lower(n.strokeJoin) } });
+    }
+  }
   return out;
+}
+const CAP = { round: "round", square: "square" }, JOIN = { round: "round", bevel: "bevel" };
+// one path entry -> SVG paint attributes (filled outline, or a real stroke for network paths)
+export function pathAttrs(p, color, opacity) {
+  const op = opacity != null ? ` ${p.stroke ? "stroke" : "fill"}-opacity="${opacity}"` : "";
+  if (!p.stroke) return ` fill="${color}"${op}${p.rule ? ` fill-rule="${p.rule}"` : ""}`;
+  return ` fill="none" stroke="${color}" stroke-width="${p.stroke.width}"${CAP[p.stroke.cap] ? ` stroke-linecap="${CAP[p.stroke.cap]}"` : ""}${JOIN[p.stroke.join] ? ` stroke-linejoin="${JOIN[p.stroke.join]}"` : ""}${op}`;
 }
 // Standalone <svg> for one vector node (local coordinates), ready to inline.
 function vectorSVG(paths, w, h) {
   let x0 = 0, y0 = 0, x1 = w || 0, y1 = h || 0;
   for (const p of paths) { x0 = Math.min(x0, p.box[0]); y0 = Math.min(y0, p.box[1]); x1 = Math.max(x1, p.box[2]); y1 = Math.max(y1, p.box[3]); }
   const vb = [x0, y0, x1 - x0, y1 - y0].map(r2);
-  const body = paths.map((p) => {
-    const c = solidOf(p.paint), op = typeof p.paint === "object" && p.paint.opacity != null ? ` fill-opacity="${p.paint.opacity}"` : "";
-    return `<path d="${p.d}" fill="${c || "currentColor"}"${op}${p.rule ? ` fill-rule="${p.rule}"` : ""}/>`;
-  }).join("");
+  const body = paths.map((p) => `<path d="${p.d}"${pathAttrs(p, solidOf(p.paint) || "currentColor", typeof p.paint === "object" ? p.paint.opacity : undefined)}/>`).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.join(" ")}" width="${vb[2]}" height="${vb[3]}">${body}</svg>`;
 }
 

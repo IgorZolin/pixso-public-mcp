@@ -5,8 +5,10 @@
 // For the PUBLIC Pixso cloud (pixso.net): delete the whole "environment" block —
 // the defaults already point at api.pixso.net.
 //
-// For a self-hosted / corporate Pixso: keep "environment" and replace "pixso-url"
-// with your Pixso domain. (Anonymous/public access to the file is still required.)
+// For a self-hosted / corporate Pixso: links to your host already work (API/WS are
+// taken from the link). Keep "environment" only if the API lives on another host;
+// replace "pixso-url" with it. (Anonymous/public access to the file is still required.)
+// "command" must use Node >= 22.15 — give the full path if the system node is older.
 //
 // "timeout" is bumped because the first call opens a websocket and waits for the
 // whole document (big files: tens of seconds) — OpenCode's default MCP timeout is

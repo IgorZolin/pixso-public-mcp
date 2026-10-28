@@ -79,7 +79,7 @@ Tools take `file_key` **or a full design URL** (`pixso.net/app/design/<file_key>
 | `pixso_pages(limit?)` | table of contents: pages and their top-level frames `{id, name, w, h, section}` |
 | `pixso_find(query, limit?)` | nodes whose **name or text** contains `query`: `{id, type, name, text, frame}` |
 | `pixso_text(node?)` | all visible text of a page/frame in layer order: `{id, text, path}` — cheapest way to read a screen |
-| `pixso_tree(node?, depth?, include_hidden?, icons?, repeats?)` | nested layer tree, instances expanded, icons as `svg`, long lists collapsed; `depth` caps nesting (deeper → `childCount`) |
+| `pixso_tree(node?, depth?, flat?, include_hidden?, icons?, repeats?)` | nested layer tree, instances expanded, icons as `svg`, long lists collapsed; nesting cut at 10 by default (deeper → `childCount`, drill down by id); `flat: true` → flat list with `parent`/`depth` |
 | `pixso_html(node?, fonts?, repeats?)` | **HTML + CSS starting point**: flexbox from auto layout, absolute positioning otherwise, full styling, inline SVG icons, CSS variables for named colors, `data-pixso-id` / `data-component` / `data-action` |
 | `pixso_tokens(node?)` | design tokens with usage counts: colors (roles, style/variable names), text styles, fonts, radii, shadows, gaps, paddings, gradients, variables per mode |
 | `pixso_components(node?)` | components used (incl. nested), grouped by set: count, instance ids, variant values, property values; unresolved masters |
@@ -112,7 +112,18 @@ The downloaded document is cached for 5 minutes, so follow-up calls are instant.
 | `PIXSO_MAX_NODES` | `20000` | max nodes `pixso_tree` builds before asking to narrow |
 | `PIXSO_ICON_MAX` | `96` | max icon size (px) collapsed into one `svg` in `pixso_tree` |
 | `PIXSO_DEBUG` | — | `1` logs websocket frames to stderr |
-| `PIXSO_API` / `PIXSO_WS` / `PIXSO_SCHEMA_URL` | pixso.net | self-hosted Pixso |
+| `PIXSO_DEFAULT_DEPTH` | `10` | `pixso_tree` nesting when `depth` is not given |
+| `PIXSO_JOIN` | `1` | `0` = don't join the coop session (no edits newer than the saved copy) |
+| `PIXSO_API` / `PIXSO_WS` / `PIXSO_SCHEMA_URL` | from the link | self-hosted Pixso; API/WS are taken from the link's host automatically |
+
+Every tool that downloads the document accepts `fresh: true` to bypass the cache.
+
+### Self-hosted / corporate Pixso
+
+Pass the file as a full link — `https://pixso.your-company.ru/app/design/<key>?item-id=…` —
+and the server talks to that host (`https://` + `wss://` same origin). Set `PIXSO_API` /
+`PIXSO_WS` only if your install uses other hosts. Fetch the schema of that install once:
+`PIXSO_SCHEMA_URL=https://pixso.your-company.ru/app/pixso.binary npm run schema`.
 
 ## Use from the CLI
 
@@ -132,7 +143,10 @@ node pixso-kiwi.mjs doc.bin tree
 ## How it works
 
 1. `GET api.pixso.net/api/pix/file/<key>/access` → anonymous guest token (only for public files).
-2. `wss://api.pixso.net/ws/coop …` + `FileInit{LoadAll}` → the document streams back.
+2. `wss://api.pixso.net/ws/coop …` + `FileInit{LoadAll}` → the saved document (`FIC_DOCUMENT`)
+   streams back; then a `JOIN_START` (what the web viewer sends) makes the server deliver edits
+   newer than the saved copy (`NODE_CHANGES`). For a moment a guest viewer appears in the file,
+   as when someone opens the public link.
 3. Frames are `zstd`-compressed **kiwi** (Figma's binary format). Decompress with Node's `zlib`.
 4. Parse Pixso's compiled kiwi schema (`pixso.binary`) and decode the document
    (`PixsoMsg → PixsoNode[]`), then nest by `parentIndex`.
@@ -142,6 +156,8 @@ node pixso-kiwi.mjs doc.bin tree
 - Public files only. Login-only / corporate files are not accessible this way (use
   Pixso's enterprise Open API with admin credentials for those).
 - Pinned to schema `v10.01`. If Pixso bumps it, re-run `npm run schema`.
+- Library vectors without stored outline geometry are rebuilt from their vector network
+  (fills by region, strokes as SVG strokes; arrowhead caps are not drawn).
 - Instances resolve only when the master is in the file (local components, and
   library components Pixso copies into the file). Otherwise the instance's own text
   (overrides, property values) is still returned, and `stats.missing` / `warning`
@@ -162,6 +178,14 @@ node pixso-kiwi.mjs doc.bin tree
 
 - **First call times out in the client** — big files take a while to stream; raise the
   client's MCP timeout (OpenCode: `"timeout": 120000`) and/or `PIXSO_WAIT_MS`.
+- **`node "…" not found` / "comes from editing session N, but the newest session is M"** — the
+  layer is newer than what the server delivered (the designer's edits aren't in the server's copy
+  yet). Retry later with `fresh: true`; `pixso_file_info` shows `modified` and the loaded copy's
+  newest session.
+- **Old Node** — the server exits with "needs Node.js >= 22.15"; point the MCP command at a newer
+  `node` (the system Node may be older than the one in your shell).
+- **Client rejects deep JSON** (e.g. "max depth 32") — `pixso_tree` cuts nesting at 10 by default;
+  use `flat: true` for a flat list.
 - **OpenCode: tools gone after reconnecting the server** (`Unknown tool`, empty search)
   — the client's tool catalog didn't refresh; restart the OpenCode session.
 
